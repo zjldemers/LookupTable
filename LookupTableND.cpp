@@ -24,6 +24,7 @@
 /////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "LookupTableND.h"
+#include <stdexcept>
 
 using namespace zjld; // feel free to remove/rename as the license above allows
 using std::string;
@@ -110,78 +111,97 @@ bool LookupTableND::PopulateData(const TableDataSet& aIndepDataSet,
 
 
 // ==== Begin Section: Lookup Methods (Public) ==== //
-bool LookupTableND::GetIndexAt(const vector<size_t>& aInputs,
-	size_t* outIndex,
-	string* outErrMsg) const
+size_t LookupTableND::LookupIndexAt(const std::vector<size_t>& aInputs) const
 {
-	if (!ValidInput(aInputs, outIndex, outErrMsg))
-		return false;
+	if (!_valid)
+		throw std::exception("Unable to operate on invalid table.");
+	if (aInputs.size() != _indepData.size())
+		throw std::invalid_argument("Must provide one input per independent variable.");
 	size_t idx = 0, prod = 1, tmpSize;
 	for (size_t i = 0; i < aInputs.size(); i++) {
 		tmpSize = _indepData.at(i).size();
-		if (aInputs.at(i) >= tmpSize) {
-			*outErrMsg = "Invalid input: one or more indices were out of bounds.";
-			return false;
-		}
+		if (aInputs.at(i) >= tmpSize)
+			throw std::invalid_argument("Input " + std::to_string(i) + " of value " 
+				+ std::to_string(aInputs.at(i)) + " out of bounds[0, " 
+				+ std::to_string(tmpSize-1) + "].");
 		idx += aInputs.at(i) * prod;
 		prod *= tmpSize;
 	}
 	// Index calculation follows the pattern: i + j*ni + k*nj*ni + l*nk*nj*ni + ...
-	if (idx >= _depData.size()) { // double check just in case, but shouldn't ever happen
-		*outErrMsg = "Calculated index out of bounds.";
+	if (idx >= _depData.size()) // double check just in case, but shouldn't ever happen
+		throw std::exception("Calculated index out of bounds.");
+	return idx;
+}
+
+bool LookupTableND::QueryIndexAt(const vector<size_t>& aInputs,
+	size_t* outIndex,
+	string* outErrMsg) const
+{
+	if(nullptr == outIndex || nullptr == outErrMsg)
+		return false;
+	try {
+		*outIndex = LookupIndexAt(aInputs);
+	}
+	catch(std::exception& e) {
+		*outErrMsg = e.what();
 		return false;
 	}
-	*outIndex = idx;
 	return true;
 }
-
-Result<size_t> LookupTableND::GetIndexAt(const vector<size_t>& aInputs) const
+Result<size_t> LookupTableND::QueryIndexAt(const vector<size_t>& aInputs) const
 {
-	size_t idx;
-	string err;
-	if (GetIndexAt(aInputs, &idx, &err))
-		return Result<size_t>(idx);
-	return err;
+	try {
+		return Result<size_t>(LookupIndexAt(aInputs));
+	}
+	catch(std::exception& e) {
+		return e.what();
+	}
 }
 
-bool LookupTableND::LookupByIndices(const vector<size_t>& aIndexInputs,
+
+double LookupTableND::LookupByIndices(const vector<size_t>& aIndexInputs) const
+{
+	if (!_valid)
+		throw std::exception("Unable to operate on invalid table.");
+	return _depData.at(LookupIndexAt(aIndexInputs));
+}
+bool LookupTableND::QueryByIndices(const vector<size_t>& aIndexInputs,
 	double* outValue,
 	string* outErrMsg) const
 {
-	size_t idx;
-	if (!GetIndexAt(aIndexInputs, &idx, outErrMsg))
+	if(nullptr == outValue || nullptr == outErrMsg)
 		return false;
-	if (nullptr == outValue) {
-		*outErrMsg = "Provided out parameter was a nullptr.";
+	try {
+		*outValue = LookupByIndices(aIndexInputs);
+	}
+	catch(std::exception& e) {
+		*outErrMsg = e.what();
 		return false;
 	}
-	*outValue = _depData.at(idx);
 	return true;
 }
-
-Result<double> LookupTableND::LookupByIndices(const vector<size_t>& aIndexInputs) const
+Result<double> LookupTableND::QueryByIndices(const vector<size_t>& aIndexInputs) const
 {
-	double val;
-	string err;
-	if (LookupByIndices(aIndexInputs, &val, &err))
-		return Result<double>(val);
-	return err;
+	try {
+		return Result<double>(LookupByIndices(aIndexInputs));
+	}
+	catch(std::exception& e) {
+		return e.what();
+	}
 }
 
-bool LookupTableND::LookupByValues(const vector<double>& aValueInputs,
-	double* outValue,
-	string* outErrMsg) const
+
+double LookupTableND::LookupByValues(const vector<double>& aValueInputs) const
 {
-	if (!ValidInput(aValueInputs, outValue, outErrMsg))
-		return false;
+	if (!_valid)
+		throw std::exception("Unable to operate on invalid table.");
 
 	const size_t kInSize = _indepData.size(); // shorthand
 	vector<size_t> lowIdxs = vector<size_t>(kInSize);
 	vector<double> prcPrgs = vector<double>(kInSize);
 	size_t comboCount = 1; // number of value combinations required for interpolation later
 	for (size_t i = 0; i < kInSize; i++) {
-		if (!GetPositionInfo(i, aValueInputs.at(i), &lowIdxs.at(i), &prcPrgs.at(i), outErrMsg))
-			return false;
+		GetPositionInfo(i, aValueInputs.at(i), &lowIdxs.at(i), &prcPrgs.at(i));
 		comboCount <<= 1; // number of combinations increases by power of two per input
 	}
 
@@ -189,8 +209,7 @@ bool LookupTableND::LookupByValues(const vector<double>& aValueInputs,
 	vector<bool> bits = vector<bool>(kInSize, false); // used to modify inps programatically
 	vector<double> vals = vector<double>(comboCount); // will hold all interpolated values
 	for (size_t i = 0; i < comboCount; i++) {
-		if (!LookupByIndices(inps, &vals.at(i), outErrMsg))
-			return false;
+		vals.at(i) = LookupByIndices(inps);
 
 		// Vary inputs programmatically, following a binary counter flipping between the low
 		//	index value found above, and the index immediately following that one
@@ -216,18 +235,31 @@ bool LookupTableND::LookupByValues(const vector<double>& aValueInputs,
 		// number of dimensions by condensing the vals vector from back to front until the 
 		// final interpolated value is calculated and stored at vals[0]
 	}
-	*outValue = vals.front();
+	return vals.front();
+}
+bool LookupTableND::QueryByValues(const vector<double>& aValueInputs,
+	double* outValue,
+	string* outErrMsg) const
+{
+	if (nullptr == outValue || nullptr == outErrMsg)
+		return false;
+	try {
+		*outValue = LookupByValues(aValueInputs);
+	}
+	catch(std::exception& e) {
+		*outErrMsg = e.what();
+		return false;
+	}
 	return true;
 }
-
-
-Result<double> LookupTableND::LookupByValues(const vector<double>& aValueInputs) const
+Result<double> LookupTableND::QueryByValues(const vector<double>& aValueInputs) const
 {
-	double val;
-	string err;
-	if (LookupByValues(aValueInputs, &val, &err))
-		return Result<double>(val);
-	return err;
+	try {
+		return Result<double>(LookupByValues(aValueInputs));
+	}
+	catch(std::exception& e) {
+		return e.what();
+	}
 }
 // ==== End Section: Lookup Methods (Public) ==== //
 
@@ -248,26 +280,27 @@ size_t LookupTableND::DepDataSize() const
 };
 size_t LookupTableND::IndepDataSize(const size_t& aDimension) const 
 {
-	if (aDimension < Dimensions())
-		return _indepData.at(aDimension).size();
-	return 0; // out of bounds request, no size "in that dimension"
+	if (aDimension >= Dimensions())
+		throw std::invalid_argument("Invalid dimension provided: " + std::to_string(aDimension));
+	return _indepData.at(aDimension).size();
 }
 // ==== End Section: Metadata (Public) ==== //
 
 
 
 // ==== Begin Section: Position Helpers (Protected) ==== //
-bool LookupTableND::GetPositionInfo(const size_t& aDimension,
+void LookupTableND::GetPositionInfo(const size_t& aDimension,
 	const double& aValue,
 	size_t* outLowIdx,
-	double* outPercProgress,
-	string* outErrMsg) const
+	double* outPercProgress) const
 {
-	if (!CheckOutParams({ outLowIdx, outPercProgress }, outErrMsg))
-		return false;
+	if (!_valid)
+		throw std::exception("Unable to operate on invalid table.");
+	if (nullptr == outLowIdx || nullptr == outPercProgress)
+		throw std::invalid_argument("Null pointer provided as input.");
+	
 	double pos;
-	if (!GetApproxPos(aDimension, aValue, &pos, outErrMsg))
-		return false;
+	GetApproxPos(aDimension, aValue, &pos);
 	
 	// Take approx position and find the index beneath it and the percent progress to the
 	// next index.  For example, pos=1.3, low=1, perc=0.3.
@@ -280,29 +313,24 @@ bool LookupTableND::GetPositionInfo(const size_t& aDimension,
 		(*outLowIdx)--;
 		*outPercProgress += 1.0; // +=1.0 instead of =1.0 to allow for extrapolation
 	}
-	return true;
 }
 
-bool LookupTableND::GetApproxPos(const size_t& aDimension,
+void LookupTableND::GetApproxPos(const size_t& aDimension,
 	const double& aValue,
-	double* outApproxPosition,
-	string* outErrMsg) const
+	double* outApproxPosition) const
 {
-	if (!CheckOutParam(outApproxPosition, outErrMsg))
-		return false;
-	if (aDimension >= _indepData.size()) {
-		*outErrMsg = "Invalid input: invalid dimension.";
-		return false;
-	}
+	if (!_valid)
+		throw std::exception("Unable to operate on invalid table.");
+	if (nullptr == outApproxPosition)
+		throw std::invalid_argument("Null pointer provided as input.");
+	if (aDimension >= _indepData.size())
+		throw std::invalid_argument("Invalid dimension (" + std::to_string(aDimension) + ") provided to " + std::to_string(_indepData.size()) + "-dimensional table.");
+
 	const TableData& data = _indepData.at(aDimension);
-	if (data.empty()) {
-		*outErrMsg = "Data vector is empty.";
-		return false;
-	}
-	if (aValue < data.front() || aValue > data.back()) {
-		*outErrMsg = "Invalid input: value given is outside of data bounds.";
-		return false;
-	}
+	if (data.empty())
+		throw std::exception("Data vector is empty.");
+	if (aValue < data.front() || aValue > data.back())
+		throw std::invalid_argument("Value given is outside of data bounds. (Extrapolation not supported.)");
 
 	// Use a binary search to find the value searched for
 	// - NOTE: this is why the independent data must be monotonically increasing
@@ -326,7 +354,6 @@ bool LookupTableND::GetApproxPos(const size_t& aDimension,
 		double perc = utils::ILerp(data.at(l), data.at(r), aValue);
 		*outApproxPosition = static_cast<double>(l) + perc;
 	}
-	return true;
 }
 // ==== End Section: Position Helpers (Protected) ==== //
 
@@ -344,34 +371,5 @@ bool LookupTableND::CheckMonotonicallyIncreasing(const TableDataSet& aFullDataSe
 		}
 	}
 	return true;
-}
-bool LookupTableND::CheckTableValidity(std::string* outErrMsg) const
-{
-	if (nullptr == outErrMsg)
-		return false;
-	if (!_valid) {
-		*outErrMsg = "Unable to operate on invalid table.";
-		return false;
-	}
-	return true;
-}
-
-bool LookupTableND::CheckOutParams(std::initializer_list<void*> outParams,
-	std::string* outErrMsg) const
-{
-	if (!CheckTableValidity(outErrMsg))
-		return false;
-	for (void* p : outParams) {
-		if (nullptr == p) {
-			*outErrMsg = "Provided nullptr as out parameter.";
-			return false;
-		}
-	}
-	return true;
-}
-bool LookupTableND::CheckOutParam(void* outParam,
-	std::string* outErrMsg) const
-{
-	return CheckOutParams({ outParam }, outErrMsg);
 }
 // ==== End Section: Validity Helpers (Protected) ==== //

@@ -24,6 +24,7 @@
 /////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "LookupTable3D.h"
+#include <stdexcept>
 
 using namespace zjld; // feel free to remove/rename as the license above allows
 using std::string;
@@ -41,62 +42,85 @@ bool LookupTable3D::IsValidSourceData(const TableDataSet& aData) const
 		&& CheckMonotonicallyIncreasing(aData));
 }
 
-bool LookupTable3D::GetIndexAt(const size_t& aDim1Index,
+
+
+size_t LookupTable3D::LookupIndexAt(const size_t& aDim1Index,
+	const size_t& aDim2Index,
+	const size_t& aDim3Index) const
+{
+	return LookupTableND::LookupIndexAt({ aDim1Index, aDim2Index, aDim3Index });
+}
+bool LookupTable3D::QueryIndexAt(const size_t& aDim1Index,
 	const size_t& aDim2Index,
 	const size_t& aDim3Index,
 	size_t* outIndex,
 	std::string* outErrMsg) const
 {
-	return LookupTableND::GetIndexAt({ aDim1Index,aDim2Index,aDim3Index }, 
+	return LookupTableND::QueryIndexAt({ aDim1Index,aDim2Index,aDim3Index }, 
 										outIndex, outErrMsg);
 }
+Result<size_t> LookupTable3D::QueryIndexAt(const size_t& aDim1Index,
+	const size_t& aDim2Index,
+	const size_t& aDim3Index) const
+{
+	return LookupTableND::QueryIndexAt({ aDim1Index, aDim2Index, aDim3Index });
+}
 
-bool LookupTable3D::LookupByIndices(const size_t& aDim1Index,
+
+
+
+
+double LookupTable3D::LookupByIndices(const size_t& aDim1Index,
+	const size_t& aDim2Index,
+	const size_t& aDim3Index) const
+{
+	return LookupTableND::LookupByIndices({ aDim1Index, aDim2Index, aDim3Index });
+}
+bool LookupTable3D::QueryByIndices(const size_t& aDim1Index,
 	const size_t& aDim2Index,
 	const size_t& aDim3Index,
 	double* outValue,
 	string* outErrMsg) const
 {
-	return LookupTableND::LookupByIndices({ aDim1Index,aDim2Index,aDim3Index }, 
+	return LookupTableND::QueryByIndices({ aDim1Index,aDim2Index,aDim3Index },
 											outValue, outErrMsg);
 }
-
-bool LookupTable3D::LookupByValues(const double& aDim1Value,
-	const double& aDim2Value,
-	const double& aDim3Value,
-	double* outValue,
-	string* outErrMsg) const
+Result<double> LookupTable3D::QueryByIndices(const size_t& aDim1Index,
+	const size_t& aDim2Index,
+	const size_t& aDim3Index) const
 {
-	if (!CheckOutParam(outValue, outErrMsg))
-		return false;
+	return LookupTableND::QueryByIndices({ aDim1Index, aDim2Index, aDim3Index });
+}
+
+
+
+double LookupTable3D::LookupByValues(const double& aDim1Value,
+	const double& aDim2Value,
+	const double& aDim3Value) const
+{
+	if (!_valid)
+		throw std::exception("Unable to operate on invalid table.");
 
 	// Retrieve the low index and percent progress data corresponding to the query and
 	// store for later use during interpolation.
 	size_t low0, low1, low2;
 	double prc0, prc1, prc2;
-	if (!GetPositionInfo(0, aDim1Value, &low0, &prc0, outErrMsg)
-		|| !GetPositionInfo(1, aDim2Value, &low1, &prc1, outErrMsg)
-		|| !GetPositionInfo(2, aDim3Value, &low2, &prc2, outErrMsg))
-	{
-		return false;
-	}
+	GetPositionInfo(0, aDim1Value, &low0, &prc0);
+	GetPositionInfo(1, aDim2Value, &low1, &prc1);
+	GetPositionInfo(2, aDim3Value, &low2, &prc2);
 
 	// Get all surrounding values to interpolate between (e.g. if needing a value at
 	// (1.2,2.7,0.3), get (1,2,0), (1,3,0), (2,2,0), (2,3,0), (1,2,1), (1,3,1), (2,2,1),
 	// and (2,3,1) then interpolate with the percent progresses above).
-	double LLL, LLH, LHL, LHH, HLL, HLH, HHL, HHH;
-	if (!LookupByIndices(low0, low1, low2, &LLL, outErrMsg)
-		|| !LookupByIndices(low0, low1, low2 + 1, &LLH, outErrMsg)
-		|| !LookupByIndices(low0, low1 + 1, low2, &LHL, outErrMsg)
-		|| !LookupByIndices(low0, low1 + 1, low2 + 1, &LHH, outErrMsg)
-		|| !LookupByIndices(low0 + 1, low1, low2, &HLL, outErrMsg)
-		|| !LookupByIndices(low0 + 1, low1, low2 + 1, &HLH, outErrMsg)
-		|| !LookupByIndices(low0 + 1, low1 + 1, low2, &HHL, outErrMsg)
-		|| !LookupByIndices(low0 + 1, low1 + 1, low2 + 1, &HHH, outErrMsg))
-	{
-		return false;
-	}
-
+	double LLL = LookupByIndices(low0, low1, low2);
+	double LLH = LookupByIndices(low0, low1, low2 + 1);
+	double LHL = LookupByIndices(low0, low1 + 1, low2);
+	double LHH = LookupByIndices(low0, low1 + 1, low2 + 1);
+	double HLL = LookupByIndices(low0 + 1, low1, low2);
+	double HLH = LookupByIndices(low0 + 1, low1, low2 + 1);
+	double HHL = LookupByIndices(low0 + 1, low1 + 1, low2);
+	double HHH = LookupByIndices(low0 + 1, low1 + 1, low2 + 1);
+	
 	// Interpolate between the surrounding positions until finding the final value
 	double LL = utils::Lerp(LLL, LLH, prc2);
 	double LH = utils::Lerp(LHL, LHH, prc2);
@@ -104,52 +128,63 @@ bool LookupTable3D::LookupByValues(const double& aDim1Value,
 	double HH = utils::Lerp(HHL, HHH, prc2);
 	double L = utils::Lerp(LL, LH, prc1);
 	double H = utils::Lerp(HL, HH, prc1);
-	*outValue = utils::Lerp(L, H, prc0);
-	return true;
+	return utils::Lerp(L, H, prc0);
 }
-
-bool LookupTable3D::LookupByValues(const vector<double>& aValueInputs,
+double LookupTable3D::LookupByValues(const vector<double>& aValueInputs) const
+{
+	if (aValueInputs.size() != 3)
+		throw std::invalid_argument("Must provide one input per independent variable.");
+	return LookupByValues(aValueInputs.at(0), aValueInputs.at(1), aValueInputs.at(2));
+}
+bool LookupTable3D::QueryByValues(const double& aDim1Value,
+	const double& aDim2Value,
+	const double& aDim3Value,
 	double* outValue,
 	string* outErrMsg) const
 {
-	if (!ValidInput(aValueInputs, outValue, outErrMsg))
+	if (nullptr == outValue || nullptr == outErrMsg)
 		return false;
-	return LookupByValues(aValueInputs.at(0), aValueInputs.at(1), aValueInputs.at(2),
-							outValue, outErrMsg);
+	try {
+		*outValue = LookupByIndices(aDim1Value, aDim2Value, aDim3Value);
+	}
+	catch (std::exception& e) {
+		*outErrMsg = e.what();
+		return false;
+	}
+	return true;
 }
-
-Result<size_t> LookupTable3D::GetIndexAt(const size_t& aDim1Index,
-	const size_t& aDim2Index,
-	const size_t& aDim3Index) const
+bool LookupTable3D::QueryByValues(const vector<double>& aValueInputs,
+	double* outValue,
+	string* outErrMsg) const
 {
-	return LookupTableND::GetIndexAt({ aDim1Index, aDim2Index, aDim3Index });
+	if (nullptr == outValue || nullptr == outErrMsg)
+		return false;
+	try {
+		*outValue = LookupByValues(aValueInputs);
+	}
+	catch (std::exception& e) {
+		*outErrMsg = e.what();
+		return false;
+	}
+	return true;
 }
-
-Result<double> LookupTable3D::LookupByIndices(const size_t& aDim1Index,
-	const size_t& aDim2Index,
-	const size_t& aDim3Index) const
-{
-	return LookupTableND::LookupByIndices({ aDim1Index, aDim2Index, aDim3Index });
-}
-
-Result<double> LookupTable3D::LookupByValues(const double& aDim1Value,
+Result<double> LookupTable3D::QueryByValues(const double& aDim1Value,
 	const double& aDim2Value,
 	const double& aDim3Value) const
 {
-	double val;
-	string err;
-	if (LookupByValues(aDim1Value, aDim2Value, aDim3Value, &val, &err))
-		return Result<double>(val);
-	return err;
+	try {
+		return Result<double>(LookupByValues(aDim1Value, aDim2Value, aDim3Value));
+	}
+	catch (std::exception& e) {
+		return e.what();
+	}
 }
-
-Result<double> LookupTable3D::LookupByValues(const std::vector<double>& aValueInputs) const
+Result<double> LookupTable3D::QueryByValues(const std::vector<double>& aValueInputs) const
 {
-	double val;
-	string err;
-	if (!ValidInput(aValueInputs, &val, &err))
-		return err;
-	if (!LookupByValues(aValueInputs.at(0), aValueInputs.at(1), aValueInputs.at(2), &val, &err))
-		return err;
-	return Result<double>(val);
+	try {
+		return Result<double>(LookupByValues(aValueInputs));
+	}
+	catch (std::exception& e) {
+		return e.what();
+	}
 }

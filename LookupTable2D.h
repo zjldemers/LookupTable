@@ -28,7 +28,7 @@
 
 #include "LookupTableND.h"
 
-namespace zjld
+namespace zjld // feel free to remove/rename as the license above allows
 {
 	// This class is a specific implementation of the LookupTableND class, restricting the
 	// dimensionality to exactly 2 dimensions (two independent data vectors along with one
@@ -40,33 +40,49 @@ namespace zjld
 	// 2-dimensional case.  With that in mind, view that class for more documentation.
 	class LookupTable2D : public LookupTableND {
 	public:
-		using LookupTableND::LookupTableND; // use all base constructors as-is
+		using LookupTableND::LookupTableND;   // use all base constructors as-is
 
 		bool IsValidSourceData(const TableDataSet& aFullDataSet) const override;
 
-		bool GetIndexAt(const size_t& aDim1Index,
+		size_t LookupIndexAt(const size_t& aDim1Index,
+			const size_t& aDim2Index) const;
+		bool QueryIndexAt(const size_t& aDim1Index,
 			const size_t& aDim2Index,
 			size_t* outIndex,
 			std::string* outErrMsg) const;
-		bool LookupByIndices(const size_t& aDim1Index,
+		utils::Result<size_t> QueryIndexAt(const size_t& aDim1Index,
+			const size_t& aDim2Index) const;
+
+		double LookupByIndices(const size_t& aDim1Index,
+			const size_t& aDim2Index) const;
+		bool QueryByIndices(const size_t& aDim1Index,
 			const size_t& aDim2Index,
 			double* outValue,
 			std::string* outErrMsg) const;
-		bool LookupByValues(const double& aDim1Value,
+		utils::Result<double> QueryByIndices(const size_t& aDim1Index,
+			const size_t& aDim2Index) const;
+		
+		double LookupByValues(const double& aDim1Value,
+			const double& aDim2Value) const;
+		double LookupByValues(const std::vector<double>& aValueInputs) const override;
+		bool QueryByValues(const double& aDim1Value,
 			const double& aDim2Value,
 			double* outValue,
 			std::string* outErrMsg) const;
-		bool LookupByValues(const std::vector<double>& aValueInputs,
+		bool QueryByValues(const std::vector<double>& aValueInputs,
 			double* outValue,
 			std::string* outErrMsg) const override;
-
-		utils::Result<size_t> GetIndexAt(const size_t& aDim1Index,
-			const size_t& aDim2Index) const;
-		utils::Result<double> LookupByIndices(const size_t& aDim1Index,
-			const size_t& aDim2Index) const;
-		utils::Result<double> LookupByValues(const double& aDim1Value,
+		utils::Result<double> QueryByValues(const double& aDim1Value,
 			const double& aDim2Value) const;
-		utils::Result<double> LookupByValues(const std::vector<double>& aValueInputs) const override;
+		utils::Result<double> QueryByValues(const std::vector<double>& aValueInputs) const override;
+	
+		// These are not available after defining methods with same name above, so re-include
+		using LookupTableND::LookupIndexAt;   // allow vector inputs
+		using LookupTableND::QueryIndexAt;    // allow vector inputs
+		using LookupTableND::LookupByIndices; // allow vector inputs
+		using LookupTableND::QueryByIndices;  // allow vector inputs
+		using LookupTableND::LookupByValues;  // allow vector inputs
+		using LookupTableND::QueryByValues;   // allow vector inputs
 	};
 }
 
